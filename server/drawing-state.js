@@ -4,28 +4,22 @@ export class DrawingState {
     this.redoStack = [];
   }
 
-  getAll() {
-    return this.strokes;
-  }
-
-  addStroke(stroke) {
+  commit(stroke) {
     this.strokes.push(stroke);
-    this.redoStack = []; // reset redo stack when new stroke added
+    this.redoStack = [];
     return this.strokes;
   }
 
   undo() {
-    if (this.strokes.length > 0) {
-      const last = this.strokes.pop();
-      this.redoStack.push(last);
+    if (this.strokes.length) {
+      this.redoStack.push(this.strokes.pop());
     }
     return this.strokes;
   }
 
   redo() {
-    if (this.redoStack.length > 0) {
-      const stroke = this.redoStack.pop();
-      this.strokes.push(stroke);
+    if (this.redoStack.length) {
+      this.strokes.push(this.redoStack.pop());
     }
     return this.strokes;
   }

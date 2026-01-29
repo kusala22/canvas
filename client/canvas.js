@@ -1,9 +1,13 @@
-// client/canvas.js
 export function attachCanvasHandlers(socket) {
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
+  const staticCanvas = document.getElementById("canvas-static");
+  const liveCanvas = document.getElementById("canvas-live");
+  const wrapper = document.querySelector(".canvas-wrapper");
 
-  // toolbar elements
+  const sCtx = staticCanvas.getContext("2d");
+  const lCtx = liveCanvas.getContext("2d");
+
+  liveCanvas.style.touchAction = "none";
+
   const brushBtn = document.getElementById("brush");
   const eraserBtn = document.getElementById("eraser");
   const colorInput = document.getElementById("color");
@@ -11,159 +15,173 @@ export function attachCanvasHandlers(socket) {
   const undoBtn = document.getElementById("undo");
   const redoBtn = document.getElementById("redo");
   const clearBtn = document.getElementById("clear");
-  const userCountSpan = document.getElementById("userCount");
+  const userCount = document.getElementById("userCount");
 
   let tool = "brush";
   let color = colorInput.value;
   let size = Number(sizeInput.value);
-
   let drawing = false;
-  let currentPoints = []; 
-
+  let currentPoints = [];
   let committedStrokes = [];
+  let lastEmit = 0;
 
-  function resize() {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * devicePixelRatio;
-    canvas.height = rect.height * devicePixelRatio;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-    ctx.scale(devicePixelRatio, devicePixelRatio);
+  // 👻 ghost cursors
+  const cursors = new Map();
+
+  function resizeCanvas() {
+    const rect = wrapper.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    [staticCanvas, liveCanvas].forEach(canvas => {
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + "px";
+      canvas.style.height = rect.height + "px";
+      canvas.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+    });
+
     redrawCommitted();
   }
 
-  // call on load and on resize
-  setTimeout(resize, 50);
-  window.addEventListener("resize", () => {
-    clearTimeout(window.__resizeTimer);
-    window.__resizeTimer = setTimeout(resize, 120);
-  });
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
 
-  // UI wiring
-  brushBtn.onclick = () => setTool("brush");
-  eraserBtn.onclick = () => setTool("eraser");
-  colorInput.oninput = (e) => (color = e.target.value);
-  sizeInput.oninput = (e) => (size = Number(e.target.value));
-  undoBtn.onclick = () => socket.emit("undo");
-  redoBtn.onclick = () => socket.emit("redo");
-  clearBtn.onclick = () => socket.emit("clear");
-
-  function setTool(t) {
-    tool = t;
-    brushBtn.classList.toggle("active", t === "brush");
-    eraserBtn.classList.toggle("active", t === "eraser");
+  function getPos(e) {
+    const r = wrapper.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
-  // get pointer position relative to canvas (CSS pixels)
-  function posFromEvent(e) {
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  }
-
-  function pointerDown(e) {
-    e.preventDefault();
-    drawing = true;
-    currentPoints = [];
-    const p = posFromEvent(e);
-    currentPoints.push(p);
-
-    socket.emit("stroke-temp", { tool, color, size, points: [p] });
-  }
-
-  function pointerMove(e) {
-    if (!drawing) return;
-    const p = posFromEvent(e);
-    currentPoints.push(p);
-
-    if (currentPoints.length % 4 === 0) {
-      socket.emit("stroke-temp", { tool, color, size, points: currentPoints.slice(-8) });
-    }
-
-    drawSegmentImmediate({ tool, color, size, points: currentPoints.slice(-2) });
-  }
-
-  function pointerUp(e) {
-    if (!drawing) return;
-    drawing = false;
-    const p = posFromEvent(e);
-    currentPoints.push(p);
-
-    const stroke = { tool, color, size, points: currentPoints.slice() };
-    socket.emit("stroke-final", stroke);
-    currentPoints = [];
-  }
-
-  function drawSegmentImmediate(stroke) {
-    if (!stroke.points || stroke.points.length < 2) return;
-    ctx.save();
-    if (stroke.tool === "eraser") {
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.strokeStyle = "rgba(0,0,0,1)";
-    } else {
-      ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = stroke.color;
-    }
-    ctx.lineWidth = stroke.size;
-    ctx.lineCap = "round";
-    ctx.beginPath();
+  // ✨ smooth curve drawing
+  function drawStroke(ctx, stroke) {
     const pts = stroke.points;
+    if (pts.length < 2) return;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = stroke.size;
+    ctx.strokeStyle = stroke.color;
+    ctx.globalCompositeOperation =
+      stroke.tool === "eraser" ? "destination-out" : "source-over";
+
+    ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+    for (let i = 1; i < pts.length - 1; i++) {
+      const midX = (pts[i].x + pts[i + 1].x) / 2;
+      const midY = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+    }
+
     ctx.stroke();
     ctx.restore();
   }
 
   function redrawCommitted() {
-    ctx.clearRect(0, 0, canvas.width / devicePixelRatio, canvas.height / devicePixelRatio);
-    for (const s of committedStrokes) {
-      drawFullStroke(s);
-    }
-  }
-  function drawFullStroke(stroke) {
-    if (!stroke.points || stroke.points.length < 2) return;
-    ctx.save();
-    if (stroke.tool === "eraser") {
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.strokeStyle = "rgba(0,0,0,1)";
-    } else {
-      ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = stroke.color;
-    }
-    ctx.lineWidth = stroke.size;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    const pts = stroke.points;
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) {
-      ctx.lineTo(pts[i].x, pts[i].y);
-    }
-    ctx.stroke();
-    ctx.restore();
+    sCtx.clearRect(0, 0, staticCanvas.width, staticCanvas.height);
+    committedStrokes.forEach(s => drawStroke(sCtx, s));
   }
 
-  socket.on("stroke-temp", ({ id, temp }) => {
-    drawSegmentImmediate(temp);
-  });
+  function drawCursors() {
+    cursors.forEach(p => {
+      lCtx.beginPath();
+      lCtx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      lCtx.fillStyle = "rgba(0,0,255,0.7)";
+      lCtx.fill();
+    });
+  }
 
-  socket.on("canvas-state", (strokes) => {
-    committedStrokes = strokes.slice();
-    redrawCommitted();
-  });
-
-  socket.on("userCount", (n) => {
-    userCountSpan.textContent = n;
-  });
-  canvas.addEventListener("pointerdown", pointerDown);
-  canvas.addEventListener("pointermove", pointerMove);
-  canvas.addEventListener("pointerup", pointerUp);
-  canvas.addEventListener("pointercancel", pointerUp);
-  canvas.addEventListener("pointerleave", pointerUp);
-
-  return {
-    redrawCommitted,
-    drawFullStroke,
+  liveCanvas.onpointerdown = e => {
+    drawing = true;
+    currentPoints = [getPos(e)];
+    liveCanvas.setPointerCapture(e.pointerId);
   };
+
+  liveCanvas.onpointermove = e => {
+    const p = getPos(e);
+
+    // send cursor position
+    socket.emit("cursor", p);
+
+    if (!drawing) {
+      lCtx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+      lCtx.beginPath();
+      lCtx.arc(p.x, p.y, size / 2, 0, Math.PI * 2);
+      lCtx.strokeStyle = "rgba(0,0,0,0.3)";
+      lCtx.stroke();
+      drawCursors();
+      return;
+    }
+
+    currentPoints.push(p);
+
+    drawStroke(lCtx, {
+      tool,
+      color,
+      size,
+      points: currentPoints.slice(-4)
+    });
+
+    const now = performance.now();
+    if (now - lastEmit > 16) {
+      socket.emit("stroke-temp", {
+        tool,
+        color,
+        size,
+        points: currentPoints.slice(-6)
+      });
+      lastEmit = now;
+    }
+  };
+
+  liveCanvas.onpointerup = () => {
+    if (!drawing) return;
+    drawing = false;
+
+    socket.emit("stroke-final", {
+      id: crypto.randomUUID(),
+      tool,
+      color,
+      size,
+      points: currentPoints
+    });
+
+    currentPoints = [];
+    lCtx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+  };
+
+  brushBtn.onclick = () => {
+    tool = "brush";
+    brushBtn.classList.add("active");
+    eraserBtn.classList.remove("active");
+  };
+
+  eraserBtn.onclick = () => {
+    tool = "eraser";
+    eraserBtn.classList.add("active");
+    brushBtn.classList.remove("active");
+  };
+
+  colorInput.oninput = e => (color = e.target.value);
+  sizeInput.oninput = e => (size = Number(e.target.value));
+  undoBtn.onclick = () => socket.emit("undo");
+  redoBtn.onclick = () => socket.emit("redo");
+  clearBtn.onclick = () => socket.emit("clear");
+
+  socket.on("stroke-temp", stroke => {
+    drawStroke(lCtx, stroke);
+  });
+
+  socket.on("canvas-state", strokes => {
+    committedStrokes = strokes;
+    redrawCommitted();
+    lCtx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+  });
+
+  socket.on("cursor", ({ id, pos }) => {
+    cursors.set(id, pos);
+    setTimeout(() => cursors.delete(id), 80);
+  });
+
+  socket.on("userCount", n => (userCount.textContent = n));
 }
