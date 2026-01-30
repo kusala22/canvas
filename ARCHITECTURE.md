@@ -3,61 +3,152 @@
 
 ### 🧩 **ARCHITECTURE.md**
 ```markdown
-# Collaborative Canvas – Architecture Overview
+# Collaborative Canvas – Architecture Documentation
 
-## 🏗️ System Design
-The app uses a **client-server** architecture powered by **Socket.io** for real-time communication.
+## 1. System Overview
 
----
+This application follows a **client–server architecture** using **WebSockets
+(Socket.io)** for real-time communication.
 
-## ⚙️ Components
-
-### 1️⃣ Frontend (Client)
-- Built using **HTML Canvas API**
-- Handles:
-  - Drawing, erasing, and color/size control
-  - Undo, redo, and clear operations
-  - Sending draw events to server via Socket.io
-- Receives updates from other users in real time
-
-### 2️⃣ Backend (Server)
-- Built on **Node.js + Express**
-- Handles:
-  - WebSocket connections using **Socket.io**
-  - Broadcasting draw events to all connected clients
-- No persistent storage (in-memory only)
+Multiple clients connect to a central Node.js server. The server acts as the
+**single source of truth** for the shared canvas state and ensures that all users
+see the same drawing in real time.
 
 ---
 
-## 🔁 Data Flow
-1. User draws → client emits event (`draw`, `erase`, etc.) to server  
-2. Server receives event → broadcasts to all connected clients  
-3. All clients update canvas in real-time  
+## 2. Client Architecture
+
+The client is implemented using **native HTML5 Canvas API** without any drawing
+libraries.
+
+Two canvas layers are used:
+- **Static Canvas** – renders all committed strokes
+- **Live Canvas** – renders in-progress strokes and user cursors
+
+This separation improves performance by avoiding full canvas redraws during
+high-frequency pointer events.
+
+The client is responsible for:
+- Capturing pointer (mouse/touch) input
+- Rendering strokes locally for instant feedback
+- Sending drawing events to the server
+- Rebuilding the canvas from server state when required
 
 ---
 
-## 🔌 Socket.io Events
+## 3. Server Architecture
 
-| Event | Direction | Description |
-|--------|------------|--------------|
-| `draw` | client → server → others | Sends drawing coordinates |
-| `erase` | client → server → others | Sends erase coordinates |
-| `undo` | client → server → others | Undo last action |
-| `redo` | client → server → others | Redo last undone action |
-| `clear` | client → server → all | Clears the entire canvas |
+The server is built using **Node.js, Express, and Socket.io**.
 
----
+The server does not perform any drawing. Instead, it:
+- Maintains an in-memory list of drawing strokes
+- Handles WebSocket connections
+- Broadcasts drawing updates to all connected clients
+- Manages global undo and redo operations
 
-## 🧱 Deployment
-### Render Setup:
-- **Backend:** Web Service → `node server.js`  
-- **Frontend:** Static Site → `/client` folder  
-- Both are connected via Socket.io using the backend's deployed URL.
+This design keeps the server lightweight and deterministic.
 
 ---
 
-## 🔒 Future Enhancements
-- Save canvas drawings to cloud storage
-- User authentication for private boards
-- Collaborative drawing rooms (multi-session)
-- Chat integration
+## 4. Real-Time Data Flow
+
+1. A user starts drawing on the canvas.
+2. The client sends temporary stroke data (`stroke-temp`) to the server.
+3. The server broadcasts this data to other connected clients for live rendering.
+4. When the stroke is completed, the client sends the final stroke (`stroke-final`).
+5. The server commits the stroke to the global history.
+6. The updated canvas state is broadcast to all clients.
+
+This ensures that drawings appear **while they are being drawn**, not after completion.
+
+---
+
+## 5. Drawing Data Model
+
+Each drawing action is represented as a **vector-based stroke object**:
+
+```json
+{
+  "id": "uuid",
+  "tool": "brush | eraser",
+  "color": "#000000",
+  "size": 4,
+  "points": [
+    { "x": 120, "y": 240 },
+    { "x": 122, "y": 242 }
+  ]
+}
+6. Undo and Redo Strategy
+
+Undo and redo operations are implemented globally.
+
+The server maintains:
+
+A stack of committed strokes
+
+A redo stack for undone strokes
+
+Undo Flow
+
+The most recent stroke is removed from the stroke stack
+
+It is pushed onto the redo stack
+
+The updated state is broadcast to all clients
+
+Redo Flow
+
+The most recent undone stroke is restored
+
+The updated state is broadcast to all clients
+
+Clients respond by clearing and redrawing the canvas from the updated stroke list,
+ensuring consistent state across all users.
+
+7. Conflict Handling
+
+Multiple users are allowed to draw on the same area simultaneously.
+
+Conflicts are handled implicitly:
+
+Strokes are additive
+
+The server’s stroke ordering determines the final visual result
+
+No explicit locking or region ownership is required
+
+This approach mirrors professional collaborative drawing tools.
+
+8. Performance Considerations
+
+To ensure smooth real-time interaction:
+
+Pointer events are throttled before being sent over the network
+
+Temporary strokes are rendered immediately on the client (client-side prediction)
+
+Full canvas redraws occur only on undo, redo, clear, or initial sync
+
+High-DPI displays are handled using devicePixelRatio
+
+9. Deployment
+
+The application is deployed as a Node.js web service on Render.
+
+Render was chosen because it supports persistent WebSocket connections, which are
+required for real-time collaboration.
+
+10. Summary
+
+This architecture prioritizes:
+
+Real-time collaboration
+
+Deterministic state synchronization
+
+Performance under high-frequency input
+
+Simplicity and clarity over over-engineering
+
+The design ensures that all users share a consistent canvas state while maintaining
+a smooth and responsive drawing experience.
