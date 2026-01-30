@@ -79,36 +79,76 @@ Each drawing action is represented as a **vector-based stroke object**:
   ]
 }
 
+
+## 6. Undo and Redo Strategy
+
+Undo and redo operations are implemented **globally** across all users.
+
+The server maintains:
+- A stack of committed strokes
+- A redo stack for undone strokes
+
+### Undo Flow
+- The most recent stroke is removed from the committed stroke stack
+- The removed stroke is pushed onto the redo stack
+- The updated canvas state is broadcast to all connected clients
+
+### Redo Flow
+- The most recent undone stroke is restored from the redo stack
+- The restored stroke is added back to the committed stroke stack
+- The updated canvas state is broadcast to all clients
+
+Clients respond by clearing and redrawing the canvas from the updated stroke list,
+ensuring that all users see the same state.
+
 ---
 
-##  AFTER FIX — WHAT WILL HAPPEN
+## 7. Conflict Handling
 
-- JSON block stays nicely formatted 
-- `## 6. Undo and Redo Strategy` becomes a **proper heading**  
-- Red highlight disappears 
-- GitHub renders clean sections 
+Multiple users are allowed to draw simultaneously on the same area of the canvas.
 
-Your architecture file will look **professional and readable**.
+Conflicts are handled implicitly:
+- Drawing actions are additive
+- The server’s stroke ordering determines the final visual output
+- No explicit locking or region ownership is enforced
 
----
-
-##  RULE TO REMEMBER (Very Important)
-
-> **Every ` ``` ` you open, you must close.**
-
-Same for:
-- ` ```json `
-- ` ```js `
-- ` ```bash `
+This approach keeps the system simple while maintaining consistent behavior
+across all clients.
 
 ---
 
-## What to do now
+## 8. Performance Considerations
 
-1. Fix the Markdown
-2. Save the file
-3. Commit again:
-   ```bat
-   git add ARCHITECTURE.md
-   git commit -m "Fix Markdown formatting in architecture documentation"
-   git push
+Several optimizations are applied to ensure smooth real-time interaction:
+
+- Pointer events are throttled before being sent over the network
+- Temporary strokes are rendered immediately on the client for instant feedback
+- Full canvas redraws occur only during undo, redo, clear, or initial sync
+- High-DPI displays are handled using `devicePixelRatio` to avoid blurry rendering
+
+These decisions balance responsiveness with network efficiency.
+
+---
+
+## 9. Deployment
+
+The application is deployed as a **Node.js web service on Render**.
+
+Render was chosen because it supports persistent WebSocket connections, which are
+required for real-time collaboration using Socket.io.
+
+Both the client and server are served from the same deployment to avoid
+cross-origin and WebSocket connectivity issues.
+
+---
+
+## 10. Summary
+
+This architecture prioritizes:
+- Real-time collaboration
+- Deterministic state synchronization
+- Performance under high-frequency input
+- Simplicity and clarity over over-engineering
+
+The design ensures that all users share a consistent canvas state while maintaining
+a smooth and responsive drawing experience.
