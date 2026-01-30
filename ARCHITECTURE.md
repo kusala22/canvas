@@ -78,77 +78,37 @@ Each drawing action is represented as a **vector-based stroke object**:
     { "x": 122, "y": 242 }
   ]
 }
-6. Undo and Redo Strategy
 
-Undo and redo operations are implemented globally.
+---
 
-The server maintains:
+##  AFTER FIX — WHAT WILL HAPPEN
 
-A stack of committed strokes
+- JSON block stays nicely formatted 
+- `## 6. Undo and Redo Strategy` becomes a **proper heading**  
+- Red highlight disappears 
+- GitHub renders clean sections 
 
-A redo stack for undone strokes
+Your architecture file will look **professional and readable**.
 
-Undo Flow
+---
 
-The most recent stroke is removed from the stroke stack
+##  RULE TO REMEMBER (Very Important)
 
-It is pushed onto the redo stack
+> **Every ` ``` ` you open, you must close.**
 
-The updated state is broadcast to all clients
+Same for:
+- ` ```json `
+- ` ```js `
+- ` ```bash `
 
-Redo Flow
+---
 
-The most recent undone stroke is restored
+## What to do now
 
-The updated state is broadcast to all clients
-
-Clients respond by clearing and redrawing the canvas from the updated stroke list,
-ensuring consistent state across all users.
-
-7. Conflict Handling
-
-Multiple users are allowed to draw on the same area simultaneously.
-
-Conflicts are handled implicitly:
-
-Strokes are additive
-
-The server’s stroke ordering determines the final visual result
-
-No explicit locking or region ownership is required
-
-This approach mirrors professional collaborative drawing tools.
-
-8. Performance Considerations
-
-To ensure smooth real-time interaction:
-
-Pointer events are throttled before being sent over the network
-
-Temporary strokes are rendered immediately on the client (client-side prediction)
-
-Full canvas redraws occur only on undo, redo, clear, or initial sync
-
-High-DPI displays are handled using devicePixelRatio
-
-9. Deployment
-
-The application is deployed as a Node.js web service on Render.
-
-Render was chosen because it supports persistent WebSocket connections, which are
-required for real-time collaboration.
-
-10. Summary
-
-This architecture prioritizes:
-
-Real-time collaboration
-
-Deterministic state synchronization
-
-Performance under high-frequency input
-
-Simplicity and clarity over over-engineering
-
-The design ensures that all users share a consistent canvas state while maintaining
-a smooth and responsive drawing experience.
+1. Fix the Markdown
+2. Save the file
+3. Commit again:
+   ```bat
+   git add ARCHITECTURE.md
+   git commit -m "Fix Markdown formatting in architecture documentation"
+   git push
