@@ -78,8 +78,8 @@ Each drawing action is represented as a **vector-based stroke object**:
     { "x": 122, "y": 242 }
   ]
 }
+---
 
-```md
 ## 6. Undo and Redo Strategy
 
 Undo and redo operations are implemented **globally** across all users.
