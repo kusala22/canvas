@@ -67,7 +67,6 @@ This ensures that drawings appear **while they are being drawn**, not after comp
 
 Each drawing action is represented as a **vector-based stroke object**:
 
-```md
 ```json
 {
   "id": "uuid",
